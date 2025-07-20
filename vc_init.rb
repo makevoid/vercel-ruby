@@ -3,6 +3,9 @@ require 'webrick'
 require 'net/http'
 require 'base64'
 require 'json'
+require 'thin'
+
+Thin
 
 $entrypoint = '__VC_HANDLER_FILENAME'
 
