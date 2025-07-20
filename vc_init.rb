@@ -1,5 +1,4 @@
 require 'tmpdir'
-require 'webrick'
 require 'net/http'
 require 'base64'
 require 'json'
@@ -28,8 +27,9 @@ def rack_handler(httpMethod, path, body, headers)
   }
 end
 
-def webrick_handler(httpMethod, path, body, headers)
+def thin_handler(httpMethod, path, body, headers)
   require_relative $entrypoint
+  require 'rack'
 
   if not Object.const_defined?('Handler')
     return { :statusCode => 500, :body => 'Handler not defined in lambda' }
@@ -38,30 +38,38 @@ def webrick_handler(httpMethod, path, body, headers)
   host = '0.0.0.0'
   port = 3000
 
-  server = WEBrick::HTTPServer.new :BindAddress => host, :Port => port
-
-  if Handler.is_a?(Proc)
-    server.mount_proc '/', Handler
+  # Create a Rack app wrapper for the Handler
+  rack_app = if Handler.is_a?(Proc)
+    lambda do |env|
+      # Convert Rack env to request/response for compatibility
+      req = Rack::Request.new(env)
+      res = Rack::Response.new
+      Handler.call(req, res)
+      res.finish
+    end
   else
-    server.mount '/', Handler
+    Handler
   end
 
-  th = Thread.new(server) do |server|
+  # Create Thin server instance
+  server = Thin::Server.new(host, port, rack_app)
+  
+  # Start server in a thread
+  server_thread = Thread.new do
     server.start
   end
 
+  # Give the server time to start
+  sleep 0.1
+
+  # Make the HTTP request
   http = Net::HTTP.new(host, port)
   res = http.send_request(httpMethod, path, body, headers)
 
-  Signal.list.keys.each do |sig|
-    begin
-      Signal.trap(sig, cleanup)
-    rescue
-    end
-  end
-
-  server.shutdown
-  Thread.kill(th)
+  # Stop the server
+  server.stop
+  server_thread.join(1) # Wait up to 1 second for thread to finish
+  server_thread.kill if server_thread.alive?
 
   # Net::HTTP doesn't read the set the encoding so we must set manually.
   # Bug: https://bugs.ruby-lang.org/issues/15517
@@ -103,5 +111,5 @@ def vc__handler(event:, context:)
     return rack_handler(httpMethod, path, body, headers)
   end
 
-  return webrick_handler(httpMethod, path, body, headers)
+  return thin_handler(httpMethod, path, body, headers)
 end
