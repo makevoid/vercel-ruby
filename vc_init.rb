@@ -2,9 +2,7 @@ require 'tmpdir'
 require 'net/http'
 require 'base64'
 require 'json'
-require 'thin'
-
-Thin
+require 'webrick'
 
 $entrypoint = '__VC_HANDLER_FILENAME'
 
@@ -70,17 +68,49 @@ def thin_handler(httpMethod, path, body, headers)
   # Create Rack::Request
   request = Rack::Request.new(env)
   
-  # Add WEBrick-compatible methods to Rack::Request
-  request.define_singleton_method(:query) do
-    query_hash
+  # Add WEBrick-compatible query parsing
+  request.instance_variable_set(:@query, nil)
+  request.define_singleton_method(:parse_query) do
+    begin
+      if @env['REQUEST_METHOD'] == "GET" || @env['REQUEST_METHOD'] == "HEAD"
+        @query = WEBrick::HTTPUtils::parse_query(@env['QUERY_STRING'] || '')
+      elsif get_header('CONTENT_TYPE') =~ /^application\/x-www-form-urlencoded/
+        @query = WEBrick::HTTPUtils::parse_query(body.read)
+        body.rewind
+      elsif get_header('CONTENT_TYPE') =~ /^multipart\/form-data; boundary=(.+)/
+        boundary = WEBrick::HTTPUtils::dequote($1)
+        @query = WEBrick::HTTPUtils::parse_form_data(body, boundary)
+        body.rewind
+      else
+        @query = Hash.new
+      end
+    rescue => ex
+      @query = Hash.new
+    end
   end
   
+  request.define_singleton_method(:query) do
+    unless @query
+      parse_query()
+    end
+    @query
+  end
+  
+  # Support both [] and get_header methods for header access
+  request.define_singleton_method(:[]) do |key|
+    if key =~ /^content-type$/i
+      get_header('CONTENT_TYPE')
+    else
+      get_header("HTTP_#{key.upcase.gsub('-', '_')}")
+    end
+  end
+
   # Create WEBrick-compatible response object
   response = Object.new
   response.instance_variable_set(:@header, {})
   response.instance_variable_set(:@status, 200)
   response.instance_variable_set(:@body, '')
-  
+
   response.define_singleton_method(:status=) do |code|
     @status = code
   end
@@ -102,10 +132,10 @@ def thin_handler(httpMethod, path, body, headers)
   response.define_singleton_method(:[]) do |key|
     @header[key]
   end
-  
+
   # Call the handler directly
   Handler.call(request, response)
-  
+
   # Return the response
   {
     :statusCode => response.status,
