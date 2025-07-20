@@ -44,6 +44,7 @@ def thin_handler(httpMethod, path, body, headers)
     lambda do |env|
       # Create WEBrick-compatible request object
       webrick_req = Object.new
+      webrick_req.instance_variable_set(:@header, env.select { |k, v| k.start_with?('HTTP_') }.transform_keys { |k| k.sub(/^HTTP_/, '').downcase })
       webrick_req.define_singleton_method(:query) do
         Rack::Utils.parse_query(env['QUERY_STRING'] || '')
       end
@@ -57,11 +58,12 @@ def thin_handler(httpMethod, path, body, headers)
         env['PATH_INFO']
       end
       webrick_req.define_singleton_method(:header) do
-        env.select { |k, v| k.start_with?('HTTP_') }.transform_keys { |k| k.sub(/^HTTP_/, '').downcase }
+        @header
       end
       
       # Create WEBrick-compatible response object
       webrick_res = Object.new
+      webrick_res.instance_variable_set(:@header, {})
       webrick_res.define_singleton_method(:status=) do |code|
         @status = code
       end
@@ -69,13 +71,19 @@ def thin_handler(httpMethod, path, body, headers)
         @status ||= 200
       end
       webrick_res.define_singleton_method(:header) do
-        @header ||= {}
+        @header
       end
       webrick_res.define_singleton_method(:body=) do |content|
         @body = content
       end
       webrick_res.define_singleton_method(:body) do
         @body ||= ''
+      end
+      webrick_res.define_singleton_method(:[]=) do |key, value|
+        @header[key] = value
+      end
+      webrick_res.define_singleton_method(:[]) do |key|
+        @header[key]
       end
       
       # Call the original handler
