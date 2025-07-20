@@ -36,100 +36,71 @@ def thin_handler(httpMethod, path, body, headers)
     return { :statusCode => 500, :body => 'Handler not defined in lambda' }
   end
 
-  host = '0.0.0.0'
-  port = 3000
+  # Parse query string from path
+  uri = URI.parse(path)
+  query_string = uri.query || ''
+  path_info = uri.path
 
-  # Create a Rack app wrapper for the Handler
-  rack_app = if Handler.is_a?(Proc)
-    lambda do |env|
-      # Create WEBrick-compatible request object
-      webrick_req = Object.new
-      webrick_req.instance_variable_set(:@header, env.select { |k, v| k.start_with?('HTTP_') }.transform_keys { |k| k.sub(/^HTTP_/, '').downcase })
-      webrick_req.define_singleton_method(:query) do
-        Rack::Utils.parse_query(env['QUERY_STRING'] || '')
-      end
-      webrick_req.define_singleton_method(:body) do
-        env['rack.input'].read if env['rack.input']
-      end
-      webrick_req.define_singleton_method(:request_method) do
-        env['REQUEST_METHOD']
-      end
-      webrick_req.define_singleton_method(:path) do
-        env['PATH_INFO']
-      end
-      webrick_req.define_singleton_method(:header) do
-        @header
-      end
-      
-      # Create WEBrick-compatible response object
-      webrick_res = Object.new
-      webrick_res.instance_variable_set(:@header, {})
-      webrick_res.define_singleton_method(:status=) do |code|
-        @status = code
-      end
-      webrick_res.define_singleton_method(:status) do
-        @status ||= 200
-      end
-      webrick_res.define_singleton_method(:header) do
-        @header
-      end
-      webrick_res.define_singleton_method(:body=) do |content|
-        @body = content
-      end
-      webrick_res.define_singleton_method(:body) do
-        @body ||= ''
-      end
-      webrick_res.define_singleton_method(:[]=) do |key, value|
-        @header[key] = value
-      end
-      webrick_res.define_singleton_method(:[]) do |key|
-        @header[key]
-      end
-      
-      # Call the original handler
-      Handler.call(webrick_req, webrick_res)
-      
-      # Return Rack response
-      [webrick_res.status, webrick_res.header, [webrick_res.body]]
-    end
-  else
-    Handler
+  # Create WEBrick-compatible request object
+  request = Object.new
+  request.instance_variable_set(:@header, headers || {})
+  request.instance_variable_set(:@query, Rack::Utils.parse_query(query_string))
+  request.instance_variable_set(:@body, body)
+  request.instance_variable_set(:@method, httpMethod)
+  request.instance_variable_set(:@path, path_info)
+  
+  request.define_singleton_method(:query) do
+    @query
   end
-
-  # Create Thin server instance
-  server = Thin::Server.new(host, port, rack_app)
-
-  # Start server in a thread
-  server_thread = Thread.new do
-    server.start
+  request.define_singleton_method(:body) do
+    @body
   end
-
-  # Give the server time to start
-  sleep 0.1
-
-  # Make the HTTP request
-  http = Net::HTTP.new(host, port)
-  res = http.send_request(httpMethod, path, body, headers)
-
-  # Stop the server
-  server.stop
-  server_thread.join(1) # Wait up to 1 second for thread to finish
-  server_thread.kill if server_thread.alive?
-
-  # Net::HTTP doesn't read the set the encoding so we must set manually.
-  # Bug: https://bugs.ruby-lang.org/issues/15517
-  # More: https://yehudakatz.com/2010/05/17/encodings-unabridged/
-  res_headers = res.each_capitalized.to_h
-  if res_headers["Content-Type"] && res_headers["Content-Type"].include?("charset=")
-    res_encoding = res_headers["Content-Type"].match(/charset=([^;]*)/)[1]
-    res.body.force_encoding(res_encoding)
-    res.body = res.body.encode(res_encoding)
+  request.define_singleton_method(:request_method) do
+    @method
   end
-
+  request.define_singleton_method(:path) do
+    @path
+  end
+  request.define_singleton_method(:header) do
+    @header
+  end
+  
+  # Create WEBrick-compatible response object
+  response = Object.new
+  response.instance_variable_set(:@header, {})
+  response.instance_variable_set(:@status, 200)
+  response.instance_variable_set(:@body, '')
+  
+  response.define_singleton_method(:status=) do |code|
+    @status = code
+  end
+  response.define_singleton_method(:status) do
+    @status
+  end
+  response.define_singleton_method(:header) do
+    @header
+  end
+  response.define_singleton_method(:body=) do |content|
+    @body = content
+  end
+  response.define_singleton_method(:body) do
+    @body
+  end
+  response.define_singleton_method(:[]=) do |key, value|
+    @header[key] = value
+  end
+  response.define_singleton_method(:[]) do |key|
+    @header[key]
+  end
+  
+  # Call the handler directly
+  Handler.call(request, response)
+  
+  # Return the response
   {
-    :statusCode => res.code.to_i,
-    :headers => res_headers,
-    :body => res.body.nil? ? "" : res.body,
+    :statusCode => response.status,
+    :headers => response.header,
+    :body => response.body,
   }
 end
 
