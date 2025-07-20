@@ -125,8 +125,73 @@ def rack_handler(httpMethod, path, body, headers)
     @header[key]
   end
 
+  # Log request start
+  request_start = Time.now
+
   # Call the handler directly
   Handler.call(request, response)
+
+  # Log request completion
+  request_end = Time.now
+  duration_ms = ((request_end - request_start) * 1000).round(2)
+
+  # Filter sensitive parameters
+  sensitive_keys = %w[password pass secret token key api_key access_token refresh_token auth authorization session csrf]
+  filtered_params = {}
+
+  begin
+    params_to_filter = request.params || {}
+    params_to_filter.each do |key, value|
+      if sensitive_keys.any? { |sensitive| key.to_s.downcase.include?(sensitive) }
+        filtered_params[key] = "[FILTERED]"
+      elsif value.is_a?(Hash)
+        # Recursively filter nested hashes
+        filtered_params[key] = value.transform_keys(&:to_s).transform_values do |v|
+          if v.is_a?(String) && sensitive_keys.any? { |sensitive| key.to_s.downcase.include?(sensitive) }
+            "[FILTERED]"
+          else
+            v
+          end
+        end
+      else
+        filtered_params[key] = value
+      end
+    end
+  rescue => e
+    filtered_params = { "error_filtering_params" => e.message }
+  end
+
+  # Format params for logging
+  params_str = if !filtered_params.empty?
+    # Convert params to compact string representation
+    params_display = filtered_params.map { |k, v|
+      value = if v.is_a?(Hash)
+        "{...}"
+      else
+        str = v.to_s
+        str.length > 20 ? "#{str[0..17]}..." : str
+      end
+      "#{k}=#{value}"
+    }.join(" ")
+    " | #{params_display}"
+  else
+    ""
+  end
+
+  # Format timestamp
+  timestamp = request_start.strftime("%H:%M:%S")
+
+  # Status color codes (for terminal output)
+  status_display = case response.status
+  when 200..299 then "✓ #{response.status}"
+  when 300..399 then "→ #{response.status}"
+  when 400..499 then "✗ #{response.status}"
+  when 500..599 then "! #{response.status}"
+  else response.status.to_s
+  end
+
+  # Format and print log as one line
+  puts "[#{timestamp}] #{request.request_method} #{request.path_info} #{status_display} #{duration_ms}ms#{params_str}"
 
   # Return the response
   {
@@ -137,7 +202,6 @@ def rack_handler(httpMethod, path, body, headers)
 end
 
 def vc__handler(event:, context:)
-  puts "MK HANDLER"
   payload = JSON.parse(event['body'])
   path = payload['path']
   headers = payload['headers']
