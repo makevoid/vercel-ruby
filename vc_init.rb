@@ -31,6 +31,7 @@ end
 def thin_handler(httpMethod, path, body, headers)
   require_relative $entrypoint
   require 'rack'
+  require 'stringio'
 
   if not Object.const_defined?('Handler')
     return { :statusCode => 500, :body => 'Handler not defined in lambda' }
@@ -41,28 +42,37 @@ def thin_handler(httpMethod, path, body, headers)
   query_string = uri.query || ''
   path_info = uri.path
 
-  # Create WEBrick-compatible request object
-  request = Object.new
-  request.instance_variable_set(:@header, headers || {})
-  request.instance_variable_set(:@query, Rack::Utils.parse_query(query_string))
-  request.instance_variable_set(:@body, body)
-  request.instance_variable_set(:@method, httpMethod)
-  request.instance_variable_set(:@path, path_info)
+  # Build Rack environment
+  env = {
+    'REQUEST_METHOD' => httpMethod,
+    'PATH_INFO' => path_info,
+    'QUERY_STRING' => query_string,
+    'SERVER_NAME' => 'localhost',
+    'SERVER_PORT' => '80',
+    'rack.version' => [1, 3],
+    'rack.url_scheme' => 'http',
+    'rack.input' => StringIO.new(body || ''),
+    'rack.errors' => $stderr,
+    'rack.multithread' => false,
+    'rack.multiprocess' => true,
+    'rack.run_once' => false
+  }
+
+  # Add headers to environment
+  if headers
+    headers.each do |key, value|
+      # Convert header names to CGI format
+      env_key = "HTTP_#{key.upcase.gsub('-', '_')}"
+      env[env_key] = value
+    end
+  end
+
+  # Create Rack::Request
+  request = Rack::Request.new(env)
   
+  # Add WEBrick-compatible methods to Rack::Request
   request.define_singleton_method(:query) do
-    @query
-  end
-  request.define_singleton_method(:body) do
-    @body
-  end
-  request.define_singleton_method(:request_method) do
-    @method
-  end
-  request.define_singleton_method(:path) do
-    @path
-  end
-  request.define_singleton_method(:header) do
-    @header
+    query_hash
   end
   
   # Create WEBrick-compatible response object
