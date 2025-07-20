@@ -9,6 +9,7 @@ Thin
 $entrypoint = '__VC_HANDLER_FILENAME'
 
 ENV['RAILS_ENV'] ||= 'production'
+ENV['RACK_ENV'] ||= 'production'
 ENV['RAILS_LOG_TO_STDOUT'] ||= '1'
 
 def rack_handler(httpMethod, path, body, headers)
@@ -41,11 +42,47 @@ def thin_handler(httpMethod, path, body, headers)
   # Create a Rack app wrapper for the Handler
   rack_app = if Handler.is_a?(Proc)
     lambda do |env|
-      # Convert Rack env to request/response for compatibility
-      req = Rack::Request.new(env)
-      res = Rack::Response.new
-      Handler.call(req, res)
-      res.finish
+      # Create WEBrick-compatible request object
+      webrick_req = Object.new
+      webrick_req.define_singleton_method(:query) do
+        Rack::Utils.parse_query(env['QUERY_STRING'] || '')
+      end
+      webrick_req.define_singleton_method(:body) do
+        env['rack.input'].read if env['rack.input']
+      end
+      webrick_req.define_singleton_method(:request_method) do
+        env['REQUEST_METHOD']
+      end
+      webrick_req.define_singleton_method(:path) do
+        env['PATH_INFO']
+      end
+      webrick_req.define_singleton_method(:header) do
+        env.select { |k, v| k.start_with?('HTTP_') }.transform_keys { |k| k.sub(/^HTTP_/, '').downcase }
+      end
+      
+      # Create WEBrick-compatible response object
+      webrick_res = Object.new
+      webrick_res.define_singleton_method(:status=) do |code|
+        @status = code
+      end
+      webrick_res.define_singleton_method(:status) do
+        @status ||= 200
+      end
+      webrick_res.define_singleton_method(:header) do
+        @header ||= {}
+      end
+      webrick_res.define_singleton_method(:body=) do |content|
+        @body = content
+      end
+      webrick_res.define_singleton_method(:body) do
+        @body ||= ''
+      end
+      
+      # Call the original handler
+      Handler.call(webrick_req, webrick_res)
+      
+      # Return Rack response
+      [webrick_res.status, webrick_res.header, [webrick_res.body]]
     end
   else
     Handler
@@ -53,7 +90,7 @@ def thin_handler(httpMethod, path, body, headers)
 
   # Create Thin server instance
   server = Thin::Server.new(host, port, rack_app)
-  
+
   # Start server in a thread
   server_thread = Thread.new do
     server.start
