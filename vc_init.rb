@@ -68,32 +68,24 @@ def rack_handler(httpMethod, path, body, headers)
   # Create Rack::Request
   request = Rack::Request.new(env)
 
-  # Add WEBrick-compatible query parsing
-  request.instance_variable_set(:@query, nil)
-  request.define_singleton_method(:parse_query) do
-    begin
+  # Add WEBrick-compatible query method
+  request.define_singleton_method(:query) do
+    @webrick_query ||= begin
       if @env['REQUEST_METHOD'] == "GET" || @env['REQUEST_METHOD'] == "HEAD"
-        @query = WEBrick::HTTPUtils::parse_query(@env['QUERY_STRING'] || '')
+        WEBrick::HTTPUtils::parse_query(@env['QUERY_STRING'] || '')
       elsif get_header('CONTENT_TYPE') =~ /^application\/x-www-form-urlencoded/
-        @query = WEBrick::HTTPUtils::parse_query(body.read)
+        body_content = body.read
         body.rewind
+        WEBrick::HTTPUtils::parse_query(body_content)
       elsif get_header('CONTENT_TYPE') =~ /^multipart\/form-data; boundary=(.+)/
-        boundary = WEBrick::HTTPUtils::dequote($1)
-        @query = WEBrick::HTTPUtils::parse_form_data(body, boundary)
-        body.rewind
+        # For multipart, just return params from Rack
+        params
       else
-        @query = Hash.new
+        {}
       end
     rescue => ex
-      @query = Hash.new
+      {}
     end
-  end
-
-  request.define_singleton_method(:query) do
-    unless @query
-      parse_query()
-    end
-    @query
   end
 
   # Support both [] and get_header methods for header access
