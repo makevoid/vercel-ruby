@@ -10,7 +10,7 @@ ENV['RAILS_ENV'] ||= 'production'
 ENV['RACK_ENV'] ||= 'production'
 ENV['RAILS_LOG_TO_STDOUT'] ||= '1'
 
-def rack_handler(httpMethod, path, body, headers)
+def rack_mock_handler(httpMethod, path, body, headers)
   require 'rack'
 
   app, _ = Rack::Builder.parse_file($entrypoint)
@@ -26,7 +26,7 @@ def rack_handler(httpMethod, path, body, headers)
   }
 end
 
-def thin_handler(httpMethod, path, body, headers)
+def rack_handler(httpMethod, path, body, headers)
   require_relative $entrypoint
   require 'rack'
   require 'stringio'
@@ -67,7 +67,7 @@ def thin_handler(httpMethod, path, body, headers)
 
   # Create Rack::Request
   request = Rack::Request.new(env)
-  
+
   # Add WEBrick-compatible query parsing
   request.instance_variable_set(:@query, nil)
   request.define_singleton_method(:parse_query) do
@@ -88,14 +88,14 @@ def thin_handler(httpMethod, path, body, headers)
       @query = Hash.new
     end
   end
-  
+
   request.define_singleton_method(:query) do
     unless @query
       parse_query()
     end
     @query
   end
-  
+
   # Support both [] and get_header methods for header access
   request.define_singleton_method(:[]) do |key|
     if key =~ /^content-type$/i
@@ -164,8 +164,8 @@ def vc__handler(event:, context:)
   end
 
   if $entrypoint.end_with? '.ru'
-    return rack_handler(httpMethod, path, body, headers)
+    return rack_mock_handler(httpMethod, path, body, headers)
   end
 
-  return thin_handler(httpMethod, path, body, headers)
+  return rack_handler(httpMethod, path, body, headers)
 end
