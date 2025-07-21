@@ -14,15 +14,33 @@ def rack_mock_handler(httpMethod, path, body, headers)
   require 'rack'
 
   app, _ = Rack::Builder.parse_file($entrypoint)
-  server = Rack::MockRequest.new app
-
-  env = headers.transform_keys { |k| k.split('-').join('_').prepend('HTTP_').upcase }
-  res = server.request(httpMethod, path, env.merge({ :input => body }))
-
+  
+  # Build proper Rack environment
+  env = Rack::MockRequest.env_for(path, {
+    :method => httpMethod,
+    :input => body
+  })
+  
+  # Add headers to environment
+  if headers
+    headers.each do |key, value|
+      env_key = "HTTP_#{key.upcase.gsub('-', '_')}"
+      env[env_key] = value
+    end
+  end
+  
+  # Call the Rack app
+  status, response_headers, response_body = app.call(env)
+  
+  # Collect body if it's an enumerable
+  body_string = ""
+  response_body.each { |part| body_string << part.to_s }
+  response_body.close if response_body.respond_to?(:close)
+  
   {
-    :statusCode => res.status,
-    :headers => res.original_headers,
-    :body => res.body,
+    :statusCode => status,
+    :headers => response_headers,
+    :body => body_string,
   }
 end
 
@@ -97,32 +115,21 @@ def rack_handler(httpMethod, path, body, headers)
     end
   end
 
-  # Create WEBrick-compatible response object
-  response = Object.new
-  response.instance_variable_set(:@header, {})
-  response.instance_variable_set(:@status, 200)
-  response.instance_variable_set(:@body, '')
-
-  response.define_singleton_method(:status=) do |code|
-    @status = code
-  end
-  response.define_singleton_method(:status) do
-    @status
-  end
+  # Create Rack::Response object
+  response = Rack::Response.new
+  
+  # Add WEBrick-compatible methods to Rack::Response
   response.define_singleton_method(:header) do
-    @header
+    headers
   end
-  response.define_singleton_method(:body=) do |content|
-    @body = content
-  end
-  response.define_singleton_method(:body) do
-    @body
-  end
+  
+  # Override []= to work with both Rack::Response and WEBrick style
   response.define_singleton_method(:[]=) do |key, value|
-    @header[key] = value
+    set_header(key, value)
   end
+  
   response.define_singleton_method(:[]) do |key|
-    @header[key]
+    get_header(key)
   end
 
   # Log request start
@@ -182,22 +189,30 @@ def rack_handler(httpMethod, path, body, headers)
   timestamp = request_start.strftime("%H:%M:%S")
 
   # Status color codes (for terminal output)
-  status_display = case response.status
-  when 200..299 then "✓ #{response.status}"
-  when 300..399 then "→ #{response.status}"
-  when 400..499 then "✗ #{response.status}"
-  when 500..599 then "! #{response.status}"
-  else response.status.to_s
+  current_status = response.status
+  status_display = case current_status
+  when 200..299 then "✓ #{current_status}"
+  when 300..399 then "→ #{current_status}"
+  when 400..499 then "✗ #{current_status}"
+  when 500..599 then "! #{current_status}"
+  else current_status.to_s
   end
 
   # Format and print log as one line
   puts "[#{timestamp}] #{request.request_method} #{request.path_info} #{status_display} #{duration_ms}ms#{params_str}"
 
   # Return the response
+  # Finalize the Rack::Response to get headers and body
+  status, headers, body_parts = response.finish
+  
+  # Collect body parts into a string
+  body_string = ""
+  body_parts.each { |part| body_string << part.to_s }
+  
   {
-    :statusCode => response.status,
-    :headers => response.header,
-    :body => response.body,
+    :statusCode => status,
+    :headers => headers,
+    :body => body_string,
   }
 end
 
