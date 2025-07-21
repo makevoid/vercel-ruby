@@ -3,8 +3,11 @@ require 'net/http'
 require 'base64'
 require 'json'
 require 'webrick'
+require 'rack'
+require 'stringio'
 
 $entrypoint = '__VC_HANDLER_FILENAME'
+require_relative $entrypoint
 
 ENV['RAILS_ENV'] ||= 'production'
 ENV['RACK_ENV'] ||= 'production'
@@ -14,13 +17,13 @@ def rack_mock_handler(httpMethod, path, body, headers)
   require 'rack'
 
   app, _ = Rack::Builder.parse_file($entrypoint)
-  
+
   # Build proper Rack environment
   env = Rack::MockRequest.env_for(path, {
     :method => httpMethod,
     :input => body
   })
-  
+
   # Add headers to environment
   if headers
     headers.each do |key, value|
@@ -28,15 +31,15 @@ def rack_mock_handler(httpMethod, path, body, headers)
       env[env_key] = value
     end
   end
-  
+
   # Call the Rack app
   status, response_headers, response_body = app.call(env)
-  
+
   # Collect body if it's an enumerable
   body_string = ""
   response_body.each { |part| body_string << part.to_s }
   response_body.close if response_body.respond_to?(:close)
-  
+
   {
     :statusCode => status,
     :headers => response_headers,
@@ -45,10 +48,6 @@ def rack_mock_handler(httpMethod, path, body, headers)
 end
 
 def rack_handler(httpMethod, path, body, headers)
-  require_relative $entrypoint
-  require 'rack'
-  require 'stringio'
-
   if not Object.const_defined?('Handler')
     return { :statusCode => 500, :body => 'Handler not defined in lambda' }
   end
@@ -117,26 +116,39 @@ def rack_handler(httpMethod, path, body, headers)
 
   # Create Rack::Response object
   response = Rack::Response.new
-  
+
   # Add WEBrick-compatible methods to Rack::Response
   response.define_singleton_method(:header) do
     headers
   end
-  
+
   # Override []= to work with both Rack::Response and WEBrick style
   response.define_singleton_method(:[]=) do |key, value|
     set_header(key, value)
   end
-  
+
   response.define_singleton_method(:[]) do |key|
     get_header(key)
+  end
+
+  # Override body= to handle string assignments
+  response.define_singleton_method(:body=) do |content|
+    # Clear existing body and write new content
+    @body = []
+    write(content)
   end
 
   # Log request start
   request_start = Time.now
 
   # Call the handler directly
-  Handler.call(request, response)
+  result = Handler.call(request, response)
+
+  # If handler returns a Rack-style array, use it
+  if result.is_a?(Array) && result.length == 3
+    status, headers, body = result
+    response = Rack::Response.new(body, status, headers)
+  end
 
   # Log request completion
   request_end = Time.now
@@ -204,11 +216,15 @@ def rack_handler(httpMethod, path, body, headers)
   # Return the response
   # Finalize the Rack::Response to get headers and body
   status, headers, body_parts = response.finish
-  
+
   # Collect body parts into a string
   body_string = ""
-  body_parts.each { |part| body_string << part.to_s }
-  
+  if body_parts.respond_to?(:each)
+    body_parts.each { |part| body_string << part.to_s }
+  else
+    body_string = body_parts.to_s
+  end
+
   {
     :statusCode => status,
     :headers => headers,
