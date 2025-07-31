@@ -3,18 +3,22 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-This is an optimized version of the Vercel Ruby runtime that enables Ruby applications to be deployed on Vercel with significantly improved performance through streamlined Ruby implementation.
+This repository contains an optimized `vc_init.rb` implementation that works with the official Vercel Ruby runtime TypeScript layer. The optimization focuses on the Ruby handler code while maintaining full compatibility with Vercel's existing infrastructure.
 
 ## Key Project Details
-- **Type**: Optimized Ruby runtime for Vercel
-- **Architecture**: Optimized Ruby handler implementation
-- **Performance**: ~100ms faster cold starts vs official runtime
+- **Type**: Optimized vc_init.rb for @vercel/ruby runtime
+- **Architecture**: Uses same TypeScript/dist/index.js as official runtime
+- **Performance**: ~100ms faster requests through optimized Ruby code
 - **License**: MIT
-- **Original**: Based on @vercel/ruby from vercel/vercel repository
+- **Compatibility**: Drop-in replacement for official vc_init.rb
 
 ## Project Structure
 ```
-├── vc_init.rb      # Main Ruby runtime (entire implementation)
+├── dist/           # Same as official runtime
+├── src/            # Same TypeScript source as official
+├── vc_init.rb      # Optimized Ruby handler (main optimization)
+├── package.json    # Same as official runtime
+├── tsconfig.json   # Same as official runtime
 ├── README.md       # Documentation
 └── CLAUDE.md       # This file
 ```

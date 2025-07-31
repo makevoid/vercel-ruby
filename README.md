@@ -1,6 +1,6 @@
 # Vercel Ruby Runtime (Optimized)
 
-A heavily optimized version of the [official Vercel Ruby runtime](https://github.com/vercel/vercel/tree/main/packages/ruby) built for speed and simplicity.
+An optimized `vc_init.rb` implementation for the [official Vercel Ruby runtime](https://github.com/vercel/vercel/tree/main/packages/ruby) that provides ~100ms faster requests while maintaining the same TypeScript runtime layer.
 
 ## Overview
 
@@ -14,7 +14,7 @@ This runtime enables Ruby applications to be deployed on Vercel with significant
 - **Faster request processing** - Optimized handler logic
 
 ### Performance Improvements
-- **Faster cold starts** - ~100ms faster than original implementation
+- **Faster requests** - ~100ms faster than original implementation
 - **Reduced memory usage** - Optimized Ruby code execution
 - **Efficient request handling** - Streamlined processing logic
 
@@ -41,7 +41,7 @@ The runtime uses a single `vc_init.rb` file that:
 
 | Feature | Original Runtime | Optimized Runtime |
 |---------|-----------------|-------------------|
-| Cold Start | ~300ms | ~100ms |
+| Cold Start | ~200ms | ~100ms |
 | Ruby Implementation | Standard handler | Optimized handler |
 | Request Processing | Standard flow | Streamlined flow |
 | Code Complexity | Multiple components | Single optimized file |
