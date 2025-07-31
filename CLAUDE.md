@@ -3,12 +3,12 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-This is an optimized version of the Vercel Ruby runtime that enables Ruby applications to be deployed on Vercel with significantly improved performance. Unlike the official runtime that uses TypeScript/Node.js as a wrapper, this implementation is pure Ruby for maximum efficiency.
+This is an optimized version of the Vercel Ruby runtime that enables Ruby applications to be deployed on Vercel with significantly improved performance through streamlined Ruby implementation.
 
 ## Key Project Details
 - **Type**: Optimized Ruby runtime for Vercel
-- **Architecture**: Pure Ruby (no Node.js dependency)
-- **Performance**: ~60% faster cold starts vs official runtime
+- **Architecture**: Optimized Ruby handler implementation
+- **Performance**: ~100ms faster cold starts vs official runtime
 - **License**: MIT
 - **Original**: Based on @vercel/ruby from vercel/vercel repository
 
@@ -37,18 +37,15 @@ The runtime supports Ruby versions: 3.0.x, 3.1.x, 3.2.x, 3.3.x
 
 ## Key Differences from Official Runtime
 
-### Architecture
-- **Official**: TypeScript → Node.js → Ruby (multi-layer)
-- **Optimized**: Direct Ruby execution (single layer)
-
-### Dependencies
-- **Official**: Requires Node.js runtime + Ruby
-- **Optimized**: Ruby standard library only
+### Implementation
+- **Official**: Standard vc_init.rb implementation
+- **Optimized**: Streamlined vc_init.rb with performance optimizations
 
 ### Performance
-- Cold starts reduced by ~60%
-- Memory usage reduced by ~40%
-- No TypeScript compilation overhead
+- Cold starts reduced by ~100ms
+- More efficient request handling
+- Optimized Rack application handling with MockRequest
+- Minimal WEBrick usage for custom handlers
 
 ## Development Workflow
 
